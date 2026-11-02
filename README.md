@@ -21,18 +21,25 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 - **Persistent preferences:** Saves settings locally and applies changes to open YouTube tabs.
 - **Navigation support:** Responds to YouTube's in-page navigation and player replacement.
 
-## How It Works
+## Project Structure
 
-| Component | Responsibility |
+| Path | Responsibility |
 | --- | --- |
-| `manifest.json` | Declares permissions, content scripts, the popup, and network ruleset. |
-| `rules.json` | Defines YouTube-initiated advertising requests for Chrome to block. |
+| `manifest.json` | Declares permissions, content scripts, the popup, icons, and network ruleset. |
 | `background.js` | Serializes settings changes and rolls back network-rule changes if saving preferences fails. |
-| `content.js` | Observes page and player changes, detects ad state, and handles skipping, skip notifications, and mute restoration. |
-| `content.css` | Hides known ad components while filtering is enabled and styles the skip toast. |
-| `index.html`, `script.js`, `style.css` | Implement the popup interface and settings controls. |
-| `logo.png` | Provides the extension's visual identity. |
-| `tests/` | Contains automated tests using simulated browser APIs and player elements. |
+| `content/content.js` | Observes page and player changes, detects ad state, and handles skip requests, notifications, and mute restoration. |
+| `content/content.css` | Hides known ad components while filtering is enabled and styles the skip toast. |
+| `popup/index.html` | Defines the popup interface. |
+| `popup/script.js` | Loads preferences and handles popup controls. |
+| `popup/style.css` | Styles the popup interface. |
+| `assets/logo.png` | Provides the extension and popup logo. |
+| `rules/rules.json` | Defines YouTube-initiated advertising requests for Chrome to block. |
+| `tests/background.test.cjs` | Tests settings updates, message validation, and network-rule rollback. |
+| `tests/content.test.cjs` | Tests content-script behavior using simulated browser APIs and player elements. |
+| `.gitignore` | Excludes generated files such as Chrome's `_metadata/` directory from version control. |
+| `README.md` | Documents the project, installation, testing, and limitations. |
+
+## How It Works
 
 The content script uses debounced mutation observers and media events rather than a continuous polling loop. The background service worker handles lifecycle and settings events without a recurring timer. These choices keep the implementation small; browser performance has not been benchmarked.
 

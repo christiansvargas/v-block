@@ -34,6 +34,7 @@
     if (saved) {
       // Only restore the property we changed, and only if it is still muted.
       if (saved.video.muted) saved.video.muted = saved.muted;
+      saved.video.removeEventListener("seeked", saved.onSeeked);
       saved = null;
     }
   }
@@ -80,9 +81,14 @@
       saved.attempted !== key
     ) {
       saved.attempted = key;
+      video.removeEventListener("seeked", saved.onSeeked);
+      // Only confirm the skip once playback has actually reached the end.
+      saved.onSeeked = () => {
+        if (video.currentTime >= video.duration - 0.25) showToast();
+      };
       try {
         video.currentTime = video.duration;
-        showToast();
+        video.addEventListener("seeked", saved.onSeeked, { once: true });
       } catch {
         /* Some ads disallow seeking. */
       }

@@ -17,12 +17,19 @@ async function fixture({
     clicks = 0;
   const toasts = [];
   const timers = [];
+  const seekedListeners = new Set();
   const video = {
     muted,
     currentTime: 3,
     duration,
     readyState: 1,
     currentSrc: "test-video",
+    addEventListener(type, fn) {
+      if (type === "seeked") seekedListeners.add(fn);
+    },
+    removeEventListener(type, fn) {
+      if (type === "seeked") seekedListeners.delete(fn);
+    },
   };
   const player = {
     classList: { contains: () => activeAd },
@@ -89,6 +96,12 @@ async function fixture({
     toasts,
     timers,
     clicks: () => clicks,
+    seeked() {
+      for (const fn of [...seekedListeners]) {
+        seekedListeners.delete(fn);
+        fn();
+      }
+    },
     change(values) {
       callback(values, "local");
       pending?.();
@@ -150,9 +163,23 @@ test("skip button shows a toast that clears after two seconds", async () => {
   fn();
   assert.equal(f.toasts.length, 0);
 });
-test("seeking past an ad shows a toast", async () => {
+test("seeking past an ad shows a toast once the seek completes", async () => {
   const f = await fixture({ ad: true });
+  assert.equal(f.toasts.length, 0);
+  f.seeked();
   assert.equal(f.toasts.length, 1);
+});
+test("rejected seek shows no toast", async () => {
+  const f = await fixture({ ad: true });
+  f.video.currentTime = 3;
+  f.seeked();
+  assert.equal(f.toasts.length, 0);
+});
+test("seek finishing after the ad ends shows no toast", async () => {
+  const f = await fixture({ ad: true });
+  f.endAd();
+  f.seeked();
+  assert.equal(f.toasts.length, 0);
 });
 test("no toast without a skip", async () => {
   for (const options of [
