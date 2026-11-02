@@ -1,100 +1,78 @@
 # v-block
 
-A small, dependency-free Chrome Manifest V3 extension for desktop YouTube.
-No npm install, bundler, remote scripts, telemetry, or recurring background timer.
+A lightweight Chrome extension that reduces advertising interruptions on desktop YouTube through network filtering, cosmetic filtering, and experimental video-ad skipping.
 
-## Install
+Built with vanilla JavaScript, HTML, and CSS using Chrome's Manifest V3 extension platform. No frameworks, runtime dependencies, or build step are required.
 
-1. Extract this ZIP to a permanent folder.
-2. Open chrome://extensions and enable Developer mode.
-3. Disable your old v-block extension to avoid duplicate copies.
-4. Click Load unpacked and select the extracted v-block folder containing manifest.json.
-5. Refresh any already-open YouTube tabs.
-6. Pin v-block through Chrome's Extensions menu. Click it to change settings.
+## Overview
 
-Use this complete folder as the replacement for your earlier prototype. Your
-uploaded files are preserved separately. Chrome generates `_metadata` itself;
-do not copy the old generated `_ruleset1`. The example.com test rule and test.html
-are not part of this version.
+v-block explores how a small browser extension can combine declarative request blocking with page-level ad detection. Its scope is deliberately focused: a short network ruleset, explicit ad-element selectors, and an event-driven content script for YouTube's player.
 
-## What it does
+Video-ad handling is experimental. The project does not guarantee complete ad removal, and its effectiveness against live YouTube ads has not been established by the automated tests.
 
-- Blocks requests to three advertising-domain families only when initiated by YouTube.
-- Hides explicit ad placement elements on www.youtube.com.
-- Experimental video handling clicks visible Skip buttons. If none is available,
-  it mutes a video only while the player has YouTube's `ad-showing` class and
-  attempts one seek to the end of a finite ad lasting at most two minutes.
-- Restores the prior mute setting when the ad ends or filtering is disabled.
-- Handles YouTube's in-page navigation and player replacement using debounced
-  mutation observers and media events. The worker wakes only for lifecycle or
-  setting changes. Page child-list mutations schedule at most one pending check.
+## Features
 
-The main toggle controls both network and cosmetic filtering. The second toggle
-turns off video manipulation while retaining network and page filtering. Settings
-are local to this browser; changes apply to open tabs without manual reload,
-although already blocked requests may require a reload to recover.
+- **Network filtering:** Blocks requests to three advertising-domain families when initiated by YouTube.
+- **Cosmetic filtering:** Hides recognized ad placements on desktop YouTube.
+- **Video-ad handling:** Clicks visible Skip buttons or attempts to mute and seek past short videos explicitly marked as ads by the player.
+- **Audio restoration:** Restores the prior mute setting when an ad ends or video-ad handling is disabled.
+- **Popup controls:** Provides separate controls for overall filtering and experimental video-ad handling.
+- **Persistent preferences:** Saves settings locally and applies changes to open YouTube tabs.
+- **Navigation support:** Responds to YouTube's in-page navigation and player replacement.
 
-## Important limitations
+## How It Works
 
-This is an experimental starter, not a verified replacement for a maintained
-production blocker. Live YouTube ad blocking has NOT been verified in this build.
-YouTube frequently changes its DOM and delivery behavior. Ads sharing video
-infrastructure, server-inserted ads, anti-adblock screens, live streams, Shorts,
-embedded videos and mobile YouTube are not reliably handled. Browser rules cannot
-simply remove ad fields from a JSON response. Do not block googlevideo.com: doing
-so can also block the videos you want to watch.
-
-The seek behavior is best effort: some ads reject it; stale ad-state markup can
-cause a mistaken seek. Turn off 'Skip video ads' if that happens. When seeking is
-rejected, an ad may continue silently until its Skip button becomes available.
-Changing mute manually during an ad may be overridden by restoration. No claim
-of complete ad removal, zero delay, or bypassing YouTube's detection is made.
-
-## Files
-
-| File | Purpose |
+| Component | Responsibility |
 | --- | --- |
-| manifest.json | MV3 configuration and narrowly scoped page access |
-| rules.json | Three YouTube-initiated advertising-domain blocking rules |
-| background.js | Serialized settings changes and network-rule rollback |
-| content.js | Ad-state detection, skip handling, mute restoration |
-| content.css | Explicit ad-component selectors |
-| index.html, script.js, style.css | Popup and settings |
-| tests/ | Dependency-free Node tests using simulated browser APIs and DOM |
+| `manifest.json` | Declares permissions, content scripts, the popup, and network ruleset. |
+| `rules.json` | Defines YouTube-initiated advertising requests for Chrome to block. |
+| `background.js` | Serializes settings changes and rolls back network-rule changes if saving preferences fails. |
+| `content.js` | Observes page and player changes, detects ad state, and handles skipping and mute restoration. |
+| `content.css` | Hides known ad components while filtering is enabled. |
+| `index.html`, `script.js`, `style.css` | Implement the popup interface and settings controls. |
+| `logo.png` | Provides the extension's visual identity. |
+| `tests/` | Contains automated tests using simulated browser APIs and player elements. |
 
-## Test
+The content script uses debounced mutation observers and media events rather than a continuous polling loop. The background service worker handles lifecycle and settings events without a recurring timer. These choices keep the implementation small; browser performance has not been benchmarked.
 
-With Node.js 18 or later installed, run from this folder:
+Video manipulation requires the player's `ad-showing` class. Seeking is limited to finite videos lasting at most two minutes, with one attempt per source-and-duration combination during an ad session. The extension does not change playback speed or broadly block video-delivery domains.
 
-    node --test tests/*.test.cjs
+## Installation
 
-Tests exercise normal-content protection, ad seeking, skip-button priority,
-audio restoration, disabled behavior, long/live video protection, setting updates,
-and rollback on storage failure. These are simulated tests, not browser integration
-tests or proof of effectiveness against real YouTube ads.
+1. Clone or download the repository and extract it if necessary.
+2. Open `chrome://extensions` and enable **Developer mode**.
+3. Select **Load unpacked** and choose the folder containing `manifest.json`.
+4. Refresh any open YouTube tabs.
 
-Manual Chrome checklist:
-1. Load unpacked; confirm chrome://extensions reports no manifest or rule errors.
-2. Open a normal video. Verify volume, playback speed, seeking and navigation.
-3. If an ad appears, inspect whether skipping works and audio returns afterward.
-4. Toggle video skipping off during an ad; verify audio restores.
-5. Toggle all filtering off, reload, and verify standard YouTube behavior returns.
-6. Navigate among videos without reloading and repeat the check.
-7. Restart Chrome; verify your saved toggle and rules remain consistent.
-8. Test signed-in/out sessions separately; ad behavior can vary by session.
+The extension popup controls filtering and video-ad skipping. After source changes, reload the extension and refresh YouTube to load the updated content script.
 
-After editing files, click Reload on the extension card and refresh YouTube.
-Update selectors in content.js/content.css if YouTube changes its markup.
+## Testing
 
-## Permissions and privacy
+With Node.js 18 or later, run from the repository root:
 
-`declarativeNetRequest` supplies request blocking; `storage` saves two booleans.
-The content script only runs on https://www.youtube.com/* (top frame).
-No history, cookies, account data, external analytics, or browsing records are
-collected or transmitted. Network rules also cover requests initiated by other
-YouTube subdomains, but cosmetic and video handling target desktop www only.
+```bash
+node --test tests/*.test.cjs
+```
 
-## Reference documentation
+The test suite covers settings updates, rollback on storage failure, malformed messages, normal-video protection, ad seeking, skip-button priority, audio restoration, and disabled behavior.
 
-- https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest
-- https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
+These tests simulate browser APIs and player state. They do not validate Chrome's rule loading, current YouTube markup, real ad delivery, or browser performance. Browser testing should isolate v-block from other adblockers and check playback, audio restoration, toggles, and navigation between videos.
+
+## Limitations
+
+- YouTube can change its player markup and ad delivery, requiring updates to detection logic and selectors.
+- Some ads reject seeking or share infrastructure with ordinary videos; network rules alone cannot reliably distinguish them.
+- Stale ad-state markup can cause an incorrect seek. Video-ad handling can be disabled independently if playback is affected.
+- Manual mute changes during an ad may be overridden when the original setting is restored.
+- Server-inserted ads, anti-adblock screens, live streams, Shorts, embedded players, and mobile YouTube are not reliably supported.
+
+Page filtering and player handling target `https://www.youtube.com/*`. Network rules also apply to requests initiated by other YouTube subdomains.
+
+## Privacy and Permissions
+
+| Permission | Purpose |
+| --- | --- |
+| `declarativeNetRequest` | Enables declarative network-request blocking. |
+| `storage` | Stores the two local preference values. |
+
+v-block has no analytics, remote scripts, or external backend. It does not collect or transmit browsing history, cookies, account information, or viewing records.
