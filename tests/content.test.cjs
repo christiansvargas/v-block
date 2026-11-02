@@ -15,6 +15,8 @@ async function fixture({
     callback,
     pending,
     clicks = 0;
+  const toasts = [];
+  const timers = [];
   const video = {
     muted,
     currentTime: 3,
@@ -41,6 +43,17 @@ async function fixture({
   };
   const document = {
     documentElement: { classList: { toggle() {}, remove() {} } },
+    body: {
+      append(el) {
+        toasts.push(el);
+      },
+    },
+    createElement: () => ({
+      setAttribute() {},
+      remove() {
+        toasts.splice(toasts.indexOf(this), 1);
+      },
+    }),
     getElementById: () => player,
     addEventListener() {},
     removeEventListener() {},
@@ -52,8 +65,9 @@ async function fixture({
       observe() {}
       disconnect() {}
     },
-    setTimeout(fn) {
+    setTimeout(fn, ms) {
       pending = fn;
+      timers.push({ fn, ms });
       return 1;
     },
     clearTimeout() {},
@@ -72,6 +86,8 @@ async function fixture({
   await new Promise((resolve) => setImmediate(resolve));
   return {
     video,
+    toasts,
+    timers,
     clicks: () => clicks,
     change(values) {
       callback(values, "local");
@@ -124,4 +140,27 @@ test("visible skip button takes precedence over seeking", async () => {
   const f = await fixture({ ad: true, button: true });
   assert.equal(f.clicks(), 1);
   assert.equal(f.video.currentTime, 3);
+});
+test("skip button shows a toast that clears after two seconds", async () => {
+  const f = await fixture({ ad: true, button: true });
+  assert.equal(f.toasts.length, 1);
+  assert.equal(f.toasts[0].textContent, "Ad skipped by v-block");
+  const { fn, ms } = f.timers.at(-1);
+  assert.equal(ms, 2000);
+  fn();
+  assert.equal(f.toasts.length, 0);
+});
+test("seeking past an ad shows a toast", async () => {
+  const f = await fixture({ ad: true });
+  assert.equal(f.toasts.length, 1);
+});
+test("no toast without a skip", async () => {
+  for (const options of [
+    {},
+    { ad: true, duration: 121 },
+    { ad: true, enabled: false },
+  ]) {
+    const f = await fixture(options);
+    assert.equal(f.toasts.length, 0);
+  }
 });

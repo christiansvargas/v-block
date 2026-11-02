@@ -9,3 +9,21 @@ html.v-block-enabled #player-ads,
 html.v-block-enabled .ytp-ad-overlay-container {
   display: none !important;
 }
+
+#v-block-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483647;
+  padding: 10px 16px;
+  border: 1px solid #c2f970;
+  border-radius: 8px;
+  background: #12151b;
+  color: #c2f970;
+  font:
+    500 14px/1.4 Roboto,
+    Arial,
+    sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}

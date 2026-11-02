@@ -3,6 +3,7 @@
   const ROOT_CLASS = "v-block-enabled";
   const SKIP =
     ".ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern";
+  const TOAST_MS = 2000;
   let options = { enabled: true, skipVideoAds: true };
   let player = null;
   let saved = null;
@@ -11,7 +12,24 @@
   let observer = null;
   let playerObserver = null;
   let stopped = false;
+  let toast = null;
+  let toastTimer = null;
 
+  function hideToast() {
+    clearTimeout(toastTimer);
+    toast?.remove();
+    toast = null;
+  }
+  function showToast() {
+    hideToast();
+    toast = document.createElement("div");
+    toast.id = "v-block-toast";
+    toast.setAttribute("role", "status");
+    toast.textContent = "Ad skipped by v-block";
+    // Only the fullscreen element's subtree is rendered in fullscreen.
+    (document.fullscreenElement ?? document.body).append(toast);
+    toastTimer = setTimeout(hideToast, TOAST_MS);
+  }
   function restore() {
     if (saved) {
       // Only restore the property we changed, and only if it is still muted.
@@ -37,6 +55,7 @@
     if (button && Date.now() - lastSkip > 1000) {
       lastSkip = Date.now();
       button.click();
+      showToast();
       return;
     }
     const video = player.querySelector("video");
@@ -63,6 +82,7 @@
       saved.attempted = key;
       try {
         video.currentTime = video.duration;
+        showToast();
       } catch {
         /* Some ads disallow seeking. */
       }
@@ -110,6 +130,7 @@
     observer?.disconnect();
     playerObserver?.disconnect();
     restore();
+    hideToast();
     document.documentElement?.classList.remove(ROOT_CLASS);
     document.removeEventListener("yt-navigate-finish", schedule);
     player?.removeEventListener("loadedmetadata", schedule, true);

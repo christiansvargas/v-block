@@ -15,6 +15,7 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 - **Network filtering:** Blocks requests to three advertising-domain families when initiated by YouTube.
 - **Cosmetic filtering:** Hides recognized ad placements on desktop YouTube.
 - **Video-ad handling:** Clicks visible Skip buttons or attempts to mute and seek past short videos explicitly marked as ads by the player.
+- **Skip notification:** Shows a two-second toast in the top-right corner when v-block clicks Skip or seeks past an ad.
 - **Audio restoration:** Restores the prior mute setting when an ad ends or video-ad handling is disabled.
 - **Popup controls:** Provides separate controls for overall filtering and experimental video-ad handling.
 - **Persistent preferences:** Saves settings locally and applies changes to open YouTube tabs.
@@ -27,8 +28,8 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 | `manifest.json` | Declares permissions, content scripts, the popup, and network ruleset. |
 | `rules.json` | Defines YouTube-initiated advertising requests for Chrome to block. |
 | `background.js` | Serializes settings changes and rolls back network-rule changes if saving preferences fails. |
-| `content.js` | Observes page and player changes, detects ad state, and handles skipping and mute restoration. |
-| `content.css` | Hides known ad components while filtering is enabled. |
+| `content.js` | Observes page and player changes, detects ad state, and handles skipping, skip notifications, and mute restoration. |
+| `content.css` | Hides known ad components while filtering is enabled and styles the skip toast. |
 | `index.html`, `script.js`, `style.css` | Implement the popup interface and settings controls. |
 | `logo.png` | Provides the extension's visual identity. |
 | `tests/` | Contains automated tests using simulated browser APIs and player elements. |
@@ -54,7 +55,7 @@ With Node.js 18 or later, run from the repository root:
 node --test tests/*.test.cjs
 ```
 
-The test suite covers settings updates, rollback on storage failure, malformed messages, normal-video protection, ad seeking, skip-button priority, audio restoration, and disabled behavior.
+The test suite covers settings updates, rollback on storage failure, malformed messages, normal-video protection, ad seeking, skip-button priority, skip notifications, audio restoration, and disabled behavior.
 
 These tests simulate browser APIs and player state. They do not validate Chrome's rule loading, current YouTube markup, real ad delivery, or browser performance. Browser testing should isolate v-block from other adblockers and check playback, audio restoration, toggles, and navigation between videos.
 
