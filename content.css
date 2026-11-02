@@ -1,0 +1,11 @@
+/* Explicit ad components only. Do not hide the player or anti-adblock dialogs. */
+html.v-block-enabled ytd-ad-slot-renderer,
+html.v-block-enabled ytd-display-ad-renderer,
+html.v-block-enabled ytd-promoted-sparkles-web-renderer,
+html.v-block-enabled ytd-promoted-video-renderer,
+html.v-block-enabled ytd-in-feed-ad-layout-renderer,
+html.v-block-enabled ytd-banner-promo-renderer,
+html.v-block-enabled #player-ads,
+html.v-block-enabled .ytp-ad-overlay-container {
+  display: none !important;
+}
