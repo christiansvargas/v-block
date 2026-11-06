@@ -10,30 +10,38 @@ async function fixture({
   muted = false,
   button = null,
   enabled = true,
+  readyState = 4,
+  skippable = false,
+  settle = true,
 } = {}) {
   let activeAd = ad,
     callback,
     pending,
-    clicks = 0;
+    clicks = 0,
+    skipRequests = 0;
   const toasts = [];
   const timers = [];
-  const seekedListeners = new Set();
+  const videoListeners = { seeked: new Set(), emptied: new Set() };
   const video = {
     muted,
     currentTime: 3,
     duration,
-    readyState: 1,
+    readyState,
     currentSrc: "test-video",
     addEventListener(type, fn) {
-      if (type === "seeked") seekedListeners.add(fn);
+      videoListeners[type]?.add(fn);
     },
     removeEventListener(type, fn) {
-      if (type === "seeked") seekedListeners.delete(fn);
+      videoListeners[type]?.delete(fn);
     },
+  };
+  const fire = (type) => {
+    for (const fn of [...videoListeners[type]]) fn({ type });
   };
   const player = {
     classList: { contains: () => activeAd },
-    querySelector: () => video,
+    querySelector: (selector) =>
+      selector === "video" ? video : skippable ? {} : null,
     querySelectorAll: () =>
       button
         ? [
@@ -62,11 +70,19 @@ async function fixture({
       },
     }),
     getElementById: () => player,
+    dispatchEvent(event) {
+      if (event.type === "v-block-skip") skipRequests++;
+    },
     addEventListener() {},
     removeEventListener() {},
   };
   vm.runInNewContext(source, {
     document,
+    CustomEvent: class {
+      constructor(type) {
+        this.type = type;
+      }
+    },
     window: { addEventListener() {} },
     MutationObserver: class {
       observe() {}
@@ -91,17 +107,20 @@ async function fixture({
     },
   });
   await new Promise((resolve) => setImmediate(resolve));
+  // Wait out the skip request, then run the update it schedules.
+  const finishSkipWait = () => {
+    pending?.();
+    pending?.();
+  };
+  if (settle) finishSkipWait();
   return {
     video,
     toasts,
     timers,
     clicks: () => clicks,
-    seeked() {
-      for (const fn of [...seekedListeners]) {
-        seekedListeners.delete(fn);
-        fn();
-      }
-    },
+    skipRequests: () => skipRequests,
+    fire,
+    finishSkipWait,
     change(values) {
       callback(values, "local");
       pending?.();
@@ -118,10 +137,49 @@ test("normal content is neither muted nor sought", async () => {
   assert.equal(f.video.currentTime, 3);
   assert.equal(f.video.muted, false);
 });
-test("marked short ad is muted and sought to end", async () => {
+test("marked short ad is muted and sought just before its end", async () => {
   const f = await fixture({ ad: true });
-  assert.equal(f.video.currentTime, 30);
+  assert.equal(f.video.currentTime, 29.95);
   assert.equal(f.video.muted, true);
+});
+test("ad is not sought until playback data is ready", async () => {
+  const f = await fixture({ ad: true, readyState: 1 });
+  assert.equal(f.video.currentTime, 3);
+  assert.equal(f.skipRequests(), 0);
+  assert.equal(f.video.muted, true);
+  f.video.readyState = 3;
+  f.change({ enabled: { newValue: true } });
+  assert.equal(f.skipRequests(), 1);
+  f.finishSkipWait();
+  assert.equal(f.video.currentTime, 29.95);
+});
+test("ready ad gets a skip request before any seek", async () => {
+  const f = await fixture({ ad: true, settle: false });
+  assert.equal(f.skipRequests(), 1);
+  assert.equal(f.video.currentTime, 3);
+  f.finishSkipWait();
+  assert.equal(f.skipRequests(), 1);
+  assert.equal(f.video.currentTime, 29.95);
+});
+test("updates during the skip wait do not seek", async () => {
+  const f = await fixture({ ad: true, settle: false });
+  f.change({ enabled: { newValue: true } });
+  assert.equal(f.video.currentTime, 3);
+});
+test("ad ended by the skip request is not sought and shows a toast", async () => {
+  const f = await fixture({ ad: true, settle: false });
+  f.endAd();
+  assert.equal(f.toasts.length, 1);
+  assert.equal(f.video.currentTime, 3);
+});
+test("ignored skip request shows no toast when the ad later ends", async () => {
+  const f = await fixture({ ad: true, duration: 121 });
+  f.endAd();
+  assert.equal(f.toasts.length, 0);
+});
+test("skippable ads are sought past two minutes", async () => {
+  const f = await fixture({ ad: true, duration: 157, skippable: true });
+  assert.equal(f.video.currentTime, 156.95);
 });
 test("audio restores when ad ends", async () => {
   const f = await fixture({ ad: true });
@@ -149,13 +207,30 @@ test("live and long videos are not sought", async () => {
     assert.equal(f.video.currentTime, 3);
   }
 });
+test("live skippable ads are not sought", async () => {
+  for (const duration of [Infinity, NaN]) {
+    const f = await fixture({ ad: true, duration, skippable: true });
+    assert.equal(f.video.currentTime, 3);
+  }
+});
 test("visible skip button takes precedence over seeking", async () => {
   const f = await fixture({ ad: true, button: true });
-  assert.equal(f.clicks(), 1);
+  assert.equal(f.skipRequests(), 1);
   assert.equal(f.video.currentTime, 3);
 });
-test("skip button shows a toast that clears after two seconds", async () => {
+test("skip button is never clicked by script", async () => {
   const f = await fixture({ ad: true, button: true });
+  assert.equal(f.clicks(), 0);
+});
+test("skip request shows no toast until the ad ends", async () => {
+  const f = await fixture({ ad: true, button: true });
+  assert.equal(f.toasts.length, 0);
+  f.endAd();
+  assert.equal(f.toasts.length, 1);
+});
+test("skip toast clears after two seconds", async () => {
+  const f = await fixture({ ad: true, button: true });
+  f.endAd();
   assert.equal(f.toasts.length, 1);
   assert.equal(f.toasts[0].textContent, "Ad skipped by v-block");
   const { fn, ms } = f.timers.at(-1);
@@ -166,19 +241,31 @@ test("skip button shows a toast that clears after two seconds", async () => {
 test("seeking past an ad shows a toast once the seek completes", async () => {
   const f = await fixture({ ad: true });
   assert.equal(f.toasts.length, 0);
-  f.seeked();
+  f.fire("seeked");
   assert.equal(f.toasts.length, 1);
+});
+test("ad replaced before the seek completes shows a toast", async () => {
+  const f = await fixture({ ad: true });
+  f.fire("emptied");
+  assert.equal(f.toasts.length, 1);
+});
+test("rejected seek shows no toast when the ad later ends", async () => {
+  const f = await fixture({ ad: true });
+  f.video.currentTime = 3;
+  f.fire("seeked");
+  f.fire("emptied");
+  assert.equal(f.toasts.length, 0);
 });
 test("rejected seek shows no toast", async () => {
   const f = await fixture({ ad: true });
   f.video.currentTime = 3;
-  f.seeked();
+  f.fire("seeked");
   assert.equal(f.toasts.length, 0);
 });
 test("seek finishing after the ad ends shows no toast", async () => {
   const f = await fixture({ ad: true });
   f.endAd();
-  f.seeked();
+  f.fire("seeked");
   assert.equal(f.toasts.length, 0);
 });
 test("no toast without a skip", async () => {

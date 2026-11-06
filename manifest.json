@@ -5,7 +5,7 @@
   "icons": {
     "128": "assets/logo.png"
   },
-  "minimum_chrome_version": "105",
+  "minimum_chrome_version": "111",
   "description": "Lightweight YouTube ad filtering with experimental video-ad skipping.",
   "permissions": [
     "declarativeNetRequest",
@@ -40,6 +40,16 @@
         "content/content.css"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content/player.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }

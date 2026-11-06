@@ -14,8 +14,8 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 
 - **Network filtering:** Blocks requests to three advertising-domain families when initiated by YouTube.
 - **Cosmetic filtering:** Hides recognized ad placements on desktop YouTube.
-- **Video-ad handling:** Clicks visible Skip buttons or attempts to mute and seek past short videos explicitly marked as ads by the player.
-- **Skip notification:** Shows a two-second toast in the top-right corner when v-block clicks Skip or seeks past an ad.
+- **Video-ad handling:** Mutes videos explicitly marked as ads by the player, asks the player to skip them, and seeks past any that ignore the request.
+- **Skip notification:** Shows a two-second toast in the top-right corner once a skip or seek has ended an ad.
 - **Audio restoration:** Restores the prior mute setting when an ad ends or video-ad handling is disabled.
 - **Popup controls:** Provides separate controls for overall filtering and experimental video-ad handling.
 - **Persistent preferences:** Saves settings locally and applies changes to open YouTube tabs.
@@ -28,6 +28,7 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 | `manifest.json` | Declares permissions, content scripts, the popup, icons, and network ruleset. |
 | `background.js` | Serializes settings changes and rolls back network-rule changes if saving preferences fails. |
 | `content/content.js` | Observes page and player changes, detects ad state, and handles skip requests, notifications, and mute restoration. |
+| `content/player.js` | Runs in the page's world to pass skip requests to YouTube's player. |
 | `content/content.css` | Hides known ad components while filtering is enabled and styles the skip toast. |
 | `popup/index.html` | Defines the popup interface. |
 | `popup/script.js` | Loads preferences and handles popup controls. |
@@ -36,6 +37,7 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 | `rules/rules.json` | Defines YouTube-initiated advertising requests for Chrome to block. |
 | `tests/background.test.cjs` | Tests settings updates, message validation, and network-rule rollback. |
 | `tests/content.test.cjs` | Tests content-script behavior using simulated browser APIs and player elements. |
+| `tests/player.test.cjs` | Tests how skip requests reach a simulated player. |
 | `.gitignore` | Excludes generated files such as Chrome's `_metadata/` directory from version control. |
 | `README.md` | Documents the project, installation, testing, and limitations. |
 
@@ -43,7 +45,9 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 
 The content script uses debounced mutation observers and media events rather than a continuous polling loop. The background service worker handles lifecycle and settings events without a recurring timer. These choices keep the implementation small; browser performance has not been benchmarked.
 
-Video manipulation requires the player's `ad-showing` class. Seeking is limited to finite videos lasting at most two minutes, with one attempt per source-and-duration combination during an ad session. The extension does not change playback speed or broadly block video-delivery domains.
+Video manipulation requires the player's `ad-showing` class. Once an ad has playback data, v-block requests a skip through `onAdUxClicked`, the player method that YouTube's own Skip button calls, and does the same for any Skip button shown later. Skip buttons are never clicked by script: YouTube ignores untrusted clicks and reports them through its `onAbnormalityDetected` event.
+
+If an ad is still showing 300 ms after the request, v-block seeks to just before its end. Seeking waits for playback data because seeking earlier freezes the player on the ad's last frame. It is limited to finite videos, to two minutes unless the ad shows YouTube's skip UI, and to one attempt per source-and-duration combination during an ad session. The extension does not change playback speed or broadly block video-delivery domains.
 
 ## Installation
 
@@ -62,13 +66,15 @@ With Node.js 18 or later, run from the repository root:
 node --test tests/*.test.cjs
 ```
 
-The test suite covers settings updates, rollback on storage failure, malformed messages, normal-video protection, ad seeking, skip-button priority, skip notifications, audio restoration, and disabled behavior.
+The test suite covers settings updates, rollback on storage failure, malformed messages, normal-video protection, skip requests, the seek fallback, skip-button priority, skip notifications, audio restoration, and disabled behavior.
 
 These tests simulate browser APIs and player state. They do not validate Chrome's rule loading, current YouTube markup, real ad delivery, or browser performance. Browser testing should isolate v-block from other adblockers and check playback, audio restoration, toggles, and navigation between videos.
 
 ## Limitations
 
 - YouTube can change its player markup and ad delivery, requiring updates to detection logic and selectors.
+- Skip requests rely on `onAdUxClicked`, an undocumented player method that can change without notice.
+- Seeking past a preroll trips YouTube's ad-speed check, which fires `onAbnormalityDetected`. Ads that honor the skip request avoid this, but non-skippable ads still reach the seek fallback.
 - Some ads reject seeking or share infrastructure with ordinary videos; network rules alone cannot reliably distinguish them.
 - Stale ad-state markup can cause an incorrect seek. Video-ad handling can be disabled independently if playback is affected.
 - Manual mute changes during an ad may be overridden when the original setting is restored.

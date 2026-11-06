@@ -3,12 +3,19 @@
   const ROOT_CLASS = "v-block-enabled";
   const SKIP =
     ".ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern";
+  // Rendered from the start of a skippable ad, unlike the button itself.
+  const SKIPPABLE_AD = ".ytp-skip-ad";
+  const SKIP_EVENT = "v-block-skip";
+  const MEDIA_EVENTS = ["loadedmetadata", "durationchange", "canplay"];
+  const HAVE_FUTURE_DATA = 3;
+  const SKIP_WAIT_MS = 300;
   const TOAST_MS = 2000;
   let options = { enabled: true, skipVideoAds: true };
   let player = null;
   let saved = null;
   let timer = null;
   let lastSkip = 0;
+  let skipRequested = false;
   let observer = null;
   let playerObserver = null;
   let stopped = false;
@@ -30,20 +37,29 @@
     (document.fullscreenElement ?? document.body).append(toast);
     toastTimer = setTimeout(hideToast, TOAST_MS);
   }
+  function stopWatchingSeek() {
+    saved.video.removeEventListener("seeked", saved.onSeekDone);
+    saved.video.removeEventListener("emptied", saved.onSeekDone);
+  }
   function restore() {
     if (saved) {
       // Only restore the property we changed, and only if it is still muted.
       if (saved.video.muted) saved.video.muted = saved.muted;
-      saved.video.removeEventListener("seeked", saved.onSeeked);
+      stopWatchingSeek();
       saved = null;
     }
   }
+  function requestSkip() {
+    skipRequested = true;
+    // Never button.click(): YouTube ignores untrusted clicks and reports them.
+    document.dispatchEvent(new CustomEvent(SKIP_EVENT));
+  }
   function handleAd() {
-    if (
-      !options.enabled ||
-      !options.skipVideoAds ||
-      !player?.classList.contains("ad-showing")
-    ) {
+    const adShowing = player?.classList.contains("ad-showing");
+    if (!options.enabled || !options.skipVideoAds || !adShowing) {
+      // The player reports no skip result, so only the ad ending confirms it.
+      if (skipRequested && !adShowing) showToast();
+      skipRequested = false;
       restore();
       return;
     }
@@ -55,8 +71,7 @@
     );
     if (button && Date.now() - lastSkip > 1000) {
       lastSkip = Date.now();
-      button.click();
-      showToast();
+      requestSkip();
       return;
     }
     const video = player.querySelector("video");
@@ -69,26 +84,55 @@
       saved = { video, muted: video.muted, attempted: "" };
     }
     video.muted = true;
-    // Experimental: only seek a finite, short video while YouTube explicitly
-    // marks the player as an ad. Never block googlevideo.com or change speed.
     const key = `${video.currentSrc}|${video.duration}`;
     if (
-      video.readyState >= 1 &&
-      Number.isFinite(video.duration) &&
-      video.duration > 0 &&
-      video.duration <= 120 &&
-      video.currentTime < video.duration - 0.25 &&
+      // Seeking before playback data exists freezes the player at the ad's end.
+      video.readyState < HAVE_FUTURE_DATA ||
+      !Number.isFinite(video.duration) ||
+      video.duration <= 0 ||
+      video.currentTime >= video.duration - 0.25
+    ) {
+      return;
+    }
+    // Prefer a skip: YouTube flags prerolls that are sought, not ones skipped.
+    // Non-skippable ads ignore the request, so they fall through to seeking.
+    if (saved.skipKey !== key) {
+      saved.skipKey = key;
+      saved.skipWaiting = true;
+      requestSkip();
+      const waited = saved;
+      setTimeout(() => {
+        waited.skipWaiting = false;
+        skipRequested = false;
+        schedule();
+      }, SKIP_WAIT_MS);
+      return;
+    }
+    // Experimental: only seek a finite video while YouTube explicitly marks the
+    // player as an ad, and past two minutes only if the ad is also skippable.
+    // Never block googlevideo.com or change speed.
+    if (
+      !saved.skipWaiting &&
+      (video.duration <= 120 || player.querySelector(SKIPPABLE_AD)) &&
       saved.attempted !== key
     ) {
       saved.attempted = key;
-      video.removeEventListener("seeked", saved.onSeeked);
-      // Only confirm the skip once playback has actually reached the end.
-      saved.onSeeked = () => {
-        if (video.currentTime >= video.duration - 0.25) showToast();
+      stopWatchingSeek();
+      // Only confirm the skip once playback has actually reached the end. The
+      // ad is usually replaced first, which empties the video without "seeked".
+      saved.onSeekDone = (event) => {
+        stopWatchingSeek();
+        if (
+          event.type === "emptied" ||
+          video.currentTime >= video.duration - 0.25
+        ) {
+          showToast();
+        }
       };
       try {
-        video.currentTime = video.duration;
-        video.addEventListener("seeked", saved.onSeeked, { once: true });
+        video.currentTime = video.duration - 0.05;
+        video.addEventListener("seeked", saved.onSeekDone);
+        video.addEventListener("emptied", saved.onSeekDone);
       } catch {
         /* Some ads disallow seeking. */
       }
@@ -102,8 +146,7 @@
     if (next !== player) {
       restore();
       playerObserver?.disconnect();
-      player?.removeEventListener("loadedmetadata", schedule, true);
-      player?.removeEventListener("durationchange", schedule, true);
+      removeMediaListeners();
       player = next;
       if (player) {
         playerObserver = new MutationObserver(schedule);
@@ -113,11 +156,17 @@
           childList: true,
           subtree: true,
         });
-        player.addEventListener("loadedmetadata", schedule, true);
-        player.addEventListener("durationchange", schedule, true);
+        for (const type of MEDIA_EVENTS) {
+          player.addEventListener(type, schedule, true);
+        }
       }
     }
     handleAd();
+  }
+  function removeMediaListeners() {
+    for (const type of MEDIA_EVENTS) {
+      player?.removeEventListener(type, schedule, true);
+    }
   }
   function schedule() {
     if (!stopped && timer === null) timer = setTimeout(update, 100);
@@ -139,8 +188,7 @@
     hideToast();
     document.documentElement?.classList.remove(ROOT_CLASS);
     document.removeEventListener("yt-navigate-finish", schedule);
-    player?.removeEventListener("loadedmetadata", schedule, true);
-    player?.removeEventListener("durationchange", schedule, true);
+    removeMediaListeners();
     chrome.storage.onChanged.removeListener(onChange);
   }
   chrome.storage.onChanged.addListener(onChange);
