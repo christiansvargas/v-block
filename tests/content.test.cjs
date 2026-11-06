@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
-const source = fs.readFileSync(path.join(__dirname, "../content/content.js"), "utf8");
+const source = fs.readFileSync(
+  path.join(__dirname, "../content/content.js"),
+  "utf8",
+);
 async function fixture({
   ad = false,
   duration = 30,
@@ -22,6 +25,7 @@ async function fixture({
   const toasts = [];
   const timers = [];
   const videoListeners = { seeked: new Set(), emptied: new Set() };
+  const playerListeners = new Map();
   const video = {
     muted,
     currentTime: 3,
@@ -53,8 +57,13 @@ async function fixture({
             },
           ]
         : [],
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      if (!playerListeners.has(type)) playerListeners.set(type, new Set());
+      playerListeners.get(type).add(fn);
+    },
+    removeEventListener(type, fn) {
+      playerListeners.get(type)?.delete(fn);
+    },
   };
   const document = {
     documentElement: { classList: { toggle() {}, remove() {} } },
@@ -121,6 +130,18 @@ async function fixture({
     skipRequests: () => skipRequests,
     fire,
     finishSkipWait,
+    showButton() {
+      button = true;
+    },
+    ticking: () => playerListeners.get("timeupdate")?.size > 0,
+    // A playback tick, then the update it schedules.
+    tick() {
+      const listeners = [...(playerListeners.get("timeupdate") ?? [])];
+      if (!listeners.length) return;
+      pending = null;
+      for (const fn of listeners) fn();
+      pending?.();
+    },
     change(values) {
       callback(values, "local");
       pending?.();
@@ -277,4 +298,19 @@ test("no toast without a skip", async () => {
     const f = await fixture(options);
     assert.equal(f.toasts.length, 0);
   }
+});
+test("skip button that appears mid-ad is acted on at the next playback tick", async () => {
+  const f = await fixture({ ad: true, duration: 121 });
+  const before = f.skipRequests();
+  f.showButton();
+  f.tick();
+  assert.equal(f.skipRequests(), before + 1);
+});
+test("playback ticks are only watched while an ad is handled", async () => {
+  assert.equal((await fixture()).ticking(), false);
+  assert.equal((await fixture({ ad: true, enabled: false })).ticking(), false);
+  const f = await fixture({ ad: true });
+  assert.equal(f.ticking(), true);
+  f.endAd();
+  assert.equal(f.ticking(), false);
 });

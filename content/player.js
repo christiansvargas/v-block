@@ -9,7 +9,7 @@
       }
     }
     return ids;
-  } 
+  }
   document.addEventListener("v-block-skip", () => {
     const player = document.getElementById("movie_player");
     // The current ad's layout id is not exposed, so report every one listed.

@@ -9,6 +9,7 @@
   const MEDIA_EVENTS = ["loadedmetadata", "durationchange", "canplay"];
   const HAVE_FUTURE_DATA = 3;
   const SKIP_WAIT_MS = 300;
+  const SKIP_RETRY_MS = 500;
   const TOAST_MS = 2000;
   let options = { enabled: true, skipVideoAds: true };
   let player = null;
@@ -16,6 +17,7 @@
   let timer = null;
   let lastSkip = 0;
   let skipRequested = false;
+  let tickTarget = null;
   let observer = null;
   let playerObserver = null;
   let stopped = false;
@@ -49,6 +51,14 @@
       saved = null;
     }
   }
+  // While an ad plays, recheck on each playback tick (about 4 per second).
+  // The Skip button can become visible without a mutation the observers see.
+  function watchAdPlayback(target) {
+    if (tickTarget === target) return;
+    tickTarget?.removeEventListener("timeupdate", schedule, true);
+    tickTarget = target;
+    tickTarget?.addEventListener("timeupdate", schedule, true);
+  }
   function requestSkip() {
     skipRequested = true;
     // Never button.click(): YouTube ignores untrusted clicks and reports them.
@@ -56,7 +66,9 @@
   }
   function handleAd() {
     const adShowing = player?.classList.contains("ad-showing");
-    if (!options.enabled || !options.skipVideoAds || !adShowing) {
+    const active = options.enabled && options.skipVideoAds && adShowing;
+    watchAdPlayback(active ? player : null);
+    if (!active) {
       // The player reports no skip result, so only the ad ending confirms it.
       if (skipRequested && !adShowing) showToast();
       skipRequested = false;
@@ -69,7 +81,7 @@
         el.getAttribute("aria-disabled") !== "true" &&
         el.getClientRects().length,
     );
-    if (button && Date.now() - lastSkip > 1000) {
+    if (button && Date.now() - lastSkip > SKIP_RETRY_MS) {
       lastSkip = Date.now();
       requestSkip();
       return;
@@ -185,6 +197,7 @@
     observer?.disconnect();
     playerObserver?.disconnect();
     restore();
+    watchAdPlayback(null);
     hideToast();
     document.documentElement?.classList.remove(ROOT_CLASS);
     document.removeEventListener("yt-navigate-finish", schedule);

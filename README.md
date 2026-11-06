@@ -43,7 +43,7 @@ Video-ad handling is experimental. The project does not guarantee complete ad re
 
 ## How It Works
 
-The content script uses debounced mutation observers and media events rather than a continuous polling loop. The background service worker handles lifecycle and settings events without a recurring timer. These choices keep the implementation small; browser performance has not been benchmarked.
+The content script uses debounced mutation observers and media events rather than a continuous polling loop. While an ad is being handled, it also rechecks on the player's playback updates (about four per second), so a Skip button is acted on soon after it appears and failed skip requests are retried every 500 ms. The background service worker handles lifecycle and settings events without a recurring timer. These choices keep the implementation small; browser performance has not been benchmarked.
 
 Video manipulation requires the player's `ad-showing` class. Once an ad has playback data, v-block requests a skip through `onAdUxClicked`, the player method that YouTube's own Skip button calls, and does the same for any Skip button shown later. Skip buttons are never clicked by script: YouTube ignores untrusted clicks and reports them through its `onAbnormalityDetected` event.
 
